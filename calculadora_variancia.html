@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calculadora de Variância</title>
+  <style>
+    :root { color-scheme: light; --ink:#172033; --muted:#667085; --line:#d9dfeb; --blue:#3157d5; --pale:#f4f6fb; --green:#eaf7ef; --red:#fff0ee; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#eef1f7; color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(920px,calc(100% - 28px)); margin:36px auto; }
+    .card { background:white; border:1px solid var(--line); border-radius:18px; padding:clamp(20px,4vw,36px); box-shadow:0 10px 30px #18264a0c; }
+    h1 { margin:0 0 6px; font-size:clamp(1.6rem,4vw,2.2rem); }
+    .intro { margin:0 0 24px; color:var(--muted); }
+    h2 { font-size:1.1rem; margin:0 0 12px; }
+    .controls { display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:18px; background:var(--pale); border-radius:14px; }
+    label { display:block; font-weight:650; margin-bottom:6px; }
+    input,select,button { font:inherit; }
+    input[type=number],select { padding:10px 12px; border:1px solid #c8d0df; border-radius:9px; background:white; color:var(--ink); }
+    #count { width:140px; }
+    button { padding:10px 15px; border:0; border-radius:9px; font-weight:700; cursor:pointer; background:var(--blue); color:white; }
+    button.secondary { color:var(--ink); background:#e5e9f2; }
+    button.danger { color:#9f2720; background:#ffe5e2; }
+    button:hover { filter:brightness(.96); }
+    .hint { font-size:.9rem; color:var(--muted); margin:12px 0 20px; }
+    .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:22px 0 10px; }
+    .section-head h2 { margin:0; }
+    .list { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; }
+    .number-row { display:grid; grid-template-columns:76px 1fr; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius:10px; }
+    .number-row label { margin:0; font-size:.94rem; }
+    .number-row input { width:100%; min-width:0; }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+    .status { min-height:24px; margin:10px 0 0; color:var(--muted); }
+    .result { display:none; margin-top:22px; padding:18px; border-radius:12px; background:var(--green); }
+    .result.show { display:block; }
+    .result h2 { margin-bottom:10px; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+    .metric { background:#ffffffc9; padding:12px; border-radius:9px; }
+    .metric span { display:block; color:var(--muted); font-size:.88rem; }
+    .metric strong { font-size:1.15rem; overflow-wrap:anywhere; }
+    .error { background:var(--red); color:#8b211b; padding:12px; border-radius:9px; margin-top:14px; }
+    footer { text-align:center; color:var(--muted); font-size:.85rem; margin:16px 0; }
+    @media(max-width:520px) { main { margin:14px auto; } .controls { align-items:stretch; } .controls > * { width:100%; } #count { width:100%; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Calculadora de Variância</h1>
+    <p class="intro">Escolha quantos números quer analisar, preencha os campos e corrija qualquer valor diretamente antes de calcular.</p>
+
+    <section aria-labelledby="setup-title">
+      <h2 id="setup-title">1. Escolha a quantidade</h2>
+      <div class="controls">
+        <div>
+          <label for="count">Quantidade de números</label>
+          <input id="count" type="number" min="1" max="1000" step="1" value="5">
+        </div>
+        <button id="apply-count" type="button">Atualizar campos</button>
+        <div>
+          <label for="mode">Tipo de variância</label>
+          <select id="mode">
+            <option value="population">Populacional</option>
+            <option value="sample">Amostral</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">Se mudar a quantidade, os valores já digitados nos campos que continuam existindo serão preservados. Limite: 1 a 1000 números.</p>
+    </section>
+
+    <section aria-labelledby="values-title">
+      <div class="section-head">
+        <h2 id="values-title">2. Digite ou corrija os valores</h2>
+        <button class="secondary" id="clear-values" type="button">Limpar valores</button>
+      </div>
+      <div class="list" id="number-list"></div>
+      <div class="actions">
+        <button id="calculate" type="button">Calcular variância</button>
+      </div>
+      <p class="status" id="status" aria-live="polite"></p>
+      <div class="result" id="result" aria-live="polite"></div>
+      <div class="error" id="error" role="alert" hidden></div>
+    </section>
+  </div>
+  <footer>Os cálculos são feitos nesta página; os números não são enviados a nenhum servidor.</footer>
+</main>
+<script>
+(() => {
+  const countInput = document.getElementById('count');
+  const list = document.getElementById('number-list');
+  const result = document.getElementById('result');
+  const error = document.getElementById('error');
+  const status = document.getElementById('status');
+  const mode = document.getElementById('mode');
+
+  function createFields(count, previous = []) {
+    list.replaceChildren();
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < count; i++) {
+      const row = document.createElement('div');
+      row.className = 'number-row';
+      const label = document.createElement('label');
+      label.htmlFor = `number-${i}`;
+      label.textContent = `Número ${i + 1}`;
+      const input = document.createElement('input');
+      input.id = `number-${i}`;
+      input.type = 'number';
+      input.step = 'any';
+      input.placeholder = 'Digite um valor';
+      input.value = previous[i] ?? '';
+      input.setAttribute('aria-label', `Número ${i + 1}`);
+      input.addEventListener('input', () => { result.classList.remove('show'); error.hidden = true; });
+      row.append(label, input);
+      fragment.append(row);
+    }
+    list.append(fragment);
+    status.textContent = `${count} campo${count === 1 ? '' : 's'} disponível${count === 1 ? '' : 'is'}.`;
+  }
+
+  function currentValues() {
+    return [...list.querySelectorAll('input')].map(input => input.value);
+  }
+
+  document.getElementById('apply-count').addEventListener('click', () => {
+    const n = Number(countInput.value);
+    if (!Number.isInteger(n) || n < 1 || n > 1000) {
+      error.textContent = 'Escolha uma quantidade inteira entre 1 e 1000.';
+      error.hidden = false;
+      return;
+    }
+    const old = currentValues();
+    createFields(n, old);
+    result.classList.remove('show');
+    error.hidden = true;
+  });
+
+  document.getElementById('clear-values').addEventListener('click', () => {
+    list.querySelectorAll('input').forEach(input => input.value = '');
+    result.classList.remove('show');
+    error.hidden = true;
+    status.textContent = 'Todos os valores foram limpos.';
+    list.querySelector('input')?.focus();
+  });
+
+  document.getElementById('calculate').addEventListener('click', () => {
+    error.hidden = true;
+    result.classList.remove('show');
+    const inputs = [...list.querySelectorAll('input')];
+    const missing = inputs.findIndex(input => input.value.trim() === '' || !Number.isFinite(Number(input.value)));
+    if (missing !== -1) {
+      error.textContent = `Preencha um número válido no campo Número ${missing + 1}. Os campos podem ser corrigidos diretamente.`;
+      error.hidden = false;
+      inputs[missing].focus();
+      return;
+    }
+    const values = inputs.map(input => Number(input.value));
+    const n = values.length;
+    if (mode.value === 'sample' && n < 2) {
+      error.textContent = 'A variância amostral precisa de pelo menos 2 números. Aumente a quantidade ou escolha a variância populacional.';
+      error.hidden = false;
+      return;
+    }
+    const mean = values.reduce((sum, value) => sum + value, 0) / n;
+    const divisor = mode.value === 'sample' ? n - 1 : n;
+    const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / divisor;
+    const standardDeviation = Math.sqrt(variance);
+    const formatter = new Intl.NumberFormat('pt-BR', { maximumSignificantDigits: 12 });
+    result.innerHTML = `
+      <h2>Resultado</h2>
+      <div class="metrics">
+        <div class="metric"><span>Variância ${mode.value === 'sample' ? 'amostral' : 'populacional'}</span><strong>${formatter.format(variance)}</strong></div>
+        <div class="metric"><span>Média</span><strong>${formatter.format(mean)}</strong></div>
+        <div class="metric"><span>Desvio padrão</span><strong>${formatter.format(standardDeviation)}</strong></div>
+        <div class="metric"><span>Números considerados</span><strong>${n}</strong></div>
+      </div>`;
+    result.classList.add('show');
+    status.textContent = 'Cálculo concluído. Você pode editar qualquer campo e calcular novamente.';
+  });
+
+  createFields(Number(countInput.value));
+})();
+</script>
+</body>
+</html>
